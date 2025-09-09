@@ -1,74 +1,48 @@
-import threading
+import cv2
 import time
 import winsound
-import cv2
+import pygame
 
-ping_speed = 1.0
-stop_flag = False
+pygame.mixer.init()
+sound = pygame.mixer.Sound("241227_002040_Tr1.WAV")
 
-
-def beeper():
-    global ping_speed, stop_flag
-    while not stop_flag:
-        if ping_speed > 0:
-            winsound.Beep(1000, 200)
-            time.sleep(ping_speed)
-        else:
-            time.sleep(0.05)
-
-
-threading.Thread(target=beeper, daemon=True).start()
-
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 
 cap = cv2.VideoCapture(0)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
-prev_gray = None
+min_frames_tracked = 3
+last_beep_time = 0
+frames_with_face = 0
 
-if __name__ == "__main__":
-    try:
-        while True:
-            success, frame = cap.read()
-            if not success:
-                continue
+while True:
+    sound.play()
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            gray = cv2.GaussianBlur(gray, (21, 21), 0)
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
-            if prev_gray is None:
-                prev_gray = gray
-                continue
+    if len(faces) > 0:
+        (x, y, w, h) = faces[0]
+        frames_with_face += 1
 
-            diff = cv2.absdiff(prev_gray, gray)
-            thresh = cv2.threshold(diff, 25, 255, cv2.THRESH_BINARY)[1]
-            motion_level = cv2.countNonZero(thresh)
+        face_area = w * h
+        delay = max(0.1, min(1.0, 20000 / face_area))
 
-            min_motion, max_motion = 5000, 50000
-            min_speed, max_speed = 5.0, 0.05
+        if frames_with_face >= min_frames_tracked:
+            if time.time() - last_beep_time > delay:
+                winsound.Beep(1000, 200)
+                last_beep_time = time.time()
 
-            if motion_level < 2000:
-                ping_speed = 0.0
-            elif motion_level <= min_motion:
-                    ping_speed = min_speed
-            elif motion_level >= max_motion:
-                    ping_speed = max_speed
-            else:
-                scale = (motion_level - min_motion) / (max_motion - min_motion)
-                ping_speed = min_speed - scale * (min_speed - max_speed)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 0), 2)
+    else:
+        frames_with_face = 0
 
-            print(f"Motion level - {motion_level} Ping speed - {ping_speed}")
+    cv2.imshow('Head Tracking', frame)
 
-            prev_gray = gray
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-            cv2.imshow("Motion Detector", thresh)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-    except KeyboardInterrupt:
-        print("\nStopped.")
-
-    stop_flag = True
-    cap.release()
-    cv2.destroyAllWindows()
+cap.release()
+cv2.destroyAllWindows()
